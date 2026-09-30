@@ -1,0 +1,75 @@
+const int IR_P1_PIN = 2;  // Player 1 IR Sensor (Left Goal)
+const int IR_P2_PIN = 6;  // Player 2 IR Sensor (Right Goal - D6)
+
+const int SIG_P1_OUT = 4; // Output to Mega Pin 22
+const int SIG_P2_OUT = 5; // Output to Mega Pin 23
+
+unsigned long lastGoalP1 = 0;
+unsigned long lastGoalP2 = 0;
+
+// --- SENSITIVITY TIMINGS ---
+const int VERIFY_HOLD_MS = 30;       // Beam must stay blocked for 30ms continuously
+const unsigned long DEBOUNCE_DELAY = 2500; // 2.5-second cooldown after a goal
+
+void setup() {
+  Serial.begin(9600);
+
+  // Standard INPUT works better for some LM393 IR module outputs
+  pinMode(IR_P1_PIN, INPUT);
+  pinMode(IR_P2_PIN, INPUT);
+
+  pinMode(SIG_P1_OUT, OUTPUT);
+  pinMode(SIG_P2_OUT, OUTPUT);
+  digitalWrite(SIG_P1_OUT, HIGH);
+  digitalWrite(SIG_P2_OUT, HIGH);
+
+  delay(500); // Power stabilization delay
+  Serial.println("==========================================");
+  Serial.println("   NANO IR SENSOR DIAGNOSTIC & FILTERED   ");
+  Serial.println("==========================================");
+}
+
+void loop() {
+  unsigned long now = millis();
+
+  // Read raw pin states for live debugging
+  int rawP1 = digitalRead(IR_P1_PIN);
+  int rawP2 = digitalRead(IR_P2_PIN);
+
+  // --- CHECK PLAYER 1 (D2) ---
+  if (rawP1 == LOW && (now - lastGoalP1 > DEBOUNCE_DELAY)) {
+    if (verifyContinuousTrigger(IR_P1_PIN)) {
+      sendPulse(SIG_P1_OUT);
+      lastGoalP1 = now;
+      Serial.println("[GOAL] Player 1 Goal Confirmed! Signal sent on Pin 4.");
+    }
+  }
+
+  // --- CHECK PLAYER 2 (D6) ---
+  if (rawP2 == LOW && (now - lastGoalP2 > DEBOUNCE_DELAY)) {
+    if (verifyContinuousTrigger(IR_P2_PIN)) {
+      sendPulse(SIG_P2_OUT);
+      lastGoalP2 = now;
+      Serial.println("[GOAL] Player 2 Goal Confirmed! Signal sent on Pin 5.");
+    }
+  }
+}
+
+// Function to verify beam stays broken (filters out glitches/reflections)
+bool verifyContinuousTrigger(int pin) {
+  unsigned long startTime = millis();
+  while (millis() - startTime < VERIFY_HOLD_MS) {
+    if (digitalRead(pin) == HIGH) {
+      // Beam was re-established; ignore false alarm
+      return false; 
+    }
+  }
+  return true; // Beam remained blocked continuously
+}
+
+// Sends a 50ms active-LOW pulse to the Mega
+void sendPulse(int pin) {
+  digitalWrite(pin, LOW);
+  delay(50);
+  digitalWrite(pin, HIGH);
+}
