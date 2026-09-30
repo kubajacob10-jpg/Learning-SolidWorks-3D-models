@@ -1,0 +1,189 @@
+#include <Elegoo_GFX.h>    
+#include <Elegoo_TFTLCD.h> 
+#include <TouchScreen.h>   
+
+#define LCD_CS A3
+#define LCD_CD A2
+#define LCD_WR A1
+#define LCD_RD A0
+#define LCD_RESET A4
+
+Elegoo_TFTLCD tft(LCD_CS, LCD_CD, LCD_WR, LCD_RD, LCD_RESET);
+
+#define YP A3  
+#define XM A2  
+#define YM 9   
+#define XP 8   
+
+#define TS_MINX 120
+#define TS_MAXX 900
+#define TS_MINY 120
+#define TS_MAXY 940
+
+#define MINPRESSURE 10
+#define MAXPRESSURE 1000
+
+TouchScreen ts = TouchScreen(XP, YP, XM, YM, 300);
+
+#define BLACK   0x0000
+#define WHITE   0xFFFF
+#define RED     0xF800
+
+// Signal inputs from Nano
+const int SIG_P1_IN = 22; // From Nano D4
+const int SIG_P2_IN = 23; // From Nano D5
+
+volatile int scoreP1 = 0;
+volatile int scoreP2 = 0;
+volatile unsigned long lastGoalP1 = 0;
+volatile unsigned long lastGoalP2 = 0;
+const unsigned long DEBOUNCE = 1500;
+
+bool gameOver = false;
+
+int lastSigStateP1 = HIGH;
+int lastSigStateP2 = HIGH;
+
+// Reset Button Coordinates (320x240 Landscape)
+const int btnX = 100;
+const int btnY = 180;
+const int btnW = 120;
+const int btnH = 45;
+
+void setup() {
+  Serial.begin(9600);
+
+  tft.reset();
+  tft.begin(0x9341);  
+  tft.setRotation(1); // Landscape mode
+
+  pinMode(SIG_P1_IN, INPUT_PULLUP);
+  pinMode(SIG_P2_IN, INPUT_PULLUP);
+
+  drawMainScreen();
+}
+
+void loop() {
+  static int lastP1 = -1;
+  static int lastP2 = -1;
+
+  // --- Read Signals from Nano ---
+  int currentSigP1 = digitalRead(SIG_P1_IN);
+  int currentSigP2 = digitalRead(SIG_P2_IN);
+
+  // Player 1 Pulse Detection
+  if (lastSigStateP1 == HIGH && currentSigP1 == LOW) {
+    if (!gameOver && (millis() - lastGoalP1 > DEBOUNCE)) {
+      scoreP1++;
+      lastGoalP1 = millis();
+      Serial.println("[MEGA] Player 1 Scored!");
+    }
+  }
+  lastSigStateP1 = currentSigP1;
+
+  // Player 2 Pulse Detection
+  if (lastSigStateP2 == HIGH && currentSigP2 == LOW) {
+    if (!gameOver && (millis() - lastGoalP2 > DEBOUNCE)) {
+      scoreP2++;
+      lastGoalP2 = millis();
+      Serial.println("[MEGA] Player 2 Scored!");
+    }
+  }
+  lastSigStateP2 = currentSigP2;
+
+  // --- Touchscreen Check ---
+  TSPoint p = ts.getPoint();
+
+  pinMode(XM, OUTPUT);
+  pinMode(YP, OUTPUT);
+
+  if (p.z > MINPRESSURE && p.z < MAXPRESSURE) {
+    int touchX = map(p.y, TS_MINY, TS_MAXY, 0, 320);
+    int touchY = map(p.x, TS_MAXX, TS_MINX, 0, 240);
+
+    if (touchX > btnX && touchX < (btnX + btnW) && touchY > btnY && touchY < (btnY + btnH)) {
+      resetGame();
+      delay(200);
+    }
+  }
+
+  // --- Game State Update ---
+  if (!gameOver) {
+    if (scoreP1 >= 10 || scoreP2 >= 10) {
+      gameOver = true;
+      drawWinScreen();
+    } else if (scoreP1 != lastP1 || scoreP2 != lastP2) {
+      updateScores();
+      lastP1 = scoreP1;
+      lastP2 = scoreP2;
+    }
+  }
+}
+
+void drawMainScreen() {
+  tft.fillScreen(BLACK);
+  tft.setTextColor(WHITE);
+  tft.setTextSize(2);
+
+  tft.setCursor(40, 15);
+  tft.print("Player 1");
+  tft.setCursor(200, 15);
+  tft.print("Player 2");
+
+  tft.drawFastVLine(160, 10, 160, WHITE);
+
+  drawResetButton();
+  updateScores();
+}
+
+void updateScores() {
+  tft.fillRect(10, 50, 140, 110, BLACK);
+  tft.fillRect(170, 50, 140, 110, BLACK);
+
+  tft.setTextSize(7);
+  tft.setTextColor(WHITE);
+
+  tft.setCursor(60, 70);
+  tft.print(scoreP1);
+
+  tft.setCursor(220, 70);
+  tft.print(scoreP2);
+}
+
+void drawWinScreen() {
+  tft.fillScreen(BLACK);
+  tft.setTextColor(WHITE);
+  tft.setTextSize(3);
+
+  tft.setCursor(25, 40);
+  if (scoreP1 >= 10) {
+    tft.print("WINNER Player 1");
+  } else {
+    tft.print("WINNER Player 2");
+  }
+
+  tft.setTextSize(5);
+  tft.setCursor(105, 100);
+  tft.print(scoreP1);
+  tft.print(" : ");
+  tft.print(scoreP2);
+
+  drawResetButton();
+}
+
+void drawResetButton() {
+  tft.fillRect(btnX, btnY, btnW, btnH, RED);
+  tft.drawRect(btnX, btnY, btnW, btnH, WHITE);
+
+  tft.setTextColor(WHITE);
+  tft.setTextSize(2);
+  tft.setCursor(btnX + 30, btnY + 14);
+  tft.print("Reset");
+}
+
+void resetGame() {
+  scoreP1 = 0;
+  scoreP2 = 0;
+  gameOver = false;
+  drawMainScreen();
+}
